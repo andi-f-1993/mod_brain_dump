@@ -1,0 +1,11 @@
+{
+  "name": "mod-brain-dump",
+  "owner": { "name": "Andreas" },
+  "plugins": [
+    {
+      "name": "brain-dump-structurer",
+      "source": "./",
+      "description": "Turns long brain-dump prompts into a structured prompt and leaves it in the prompt box for review"
+    }
+  ]
+}

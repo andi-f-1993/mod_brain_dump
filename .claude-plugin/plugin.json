@@ -1,0 +1,13 @@
+{
+  "name": "brain-dump-structurer",
+  "version": "0.1.0",
+  "description": "Turns long brain-dump prompts into a structured prompt (job, why, boundaries, definition of done), asks clarifying questions, and leaves it in the prompt box for review.",
+  "userConfig": {
+    "minWords": {
+      "type": "number",
+      "title": "Brain-dump threshold (words)",
+      "description": "Prompts with at least this many words are structured before Claude acts on them.",
+      "default": 120
+    }
+  }
+}
