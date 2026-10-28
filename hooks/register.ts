@@ -51,6 +51,8 @@ export const register: Register = (on, options) => {
   // Module variables: a hot reload resets them, which only re-arms detection.
   let lastFilled = ''
   let isPending = false
+  // Turns a pending structuring may still span (the dump's turn and one answer to its questions).
+  let pendingTurns = 0
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -120,9 +122,20 @@ export const register: Register = (on, options) => {
     }
 
     isPending = true
+    pendingTurns = 2
     $.ui.status('Structuring brain dump…')
 
     return next({ ...e, text, context: [...context, INSTRUCTIONS] })
+  })
+
+  // A structuring that never reached the ready tool must not tag every later prompt as a follow-up.
+  on('turn.complete', async ($, e, next) => {
+    if (e.agentId === undefined && isPending && --pendingTurns <= 0) {
+      isPending = false
+      $.ui.status(undefined)
+    }
+
+    return next(e)
   })
 
   on('tool.call', { tool: TOOL_FULL }, async ($, e) => {
@@ -138,17 +151,16 @@ export const register: Register = (on, options) => {
 
     if (filled.isFilled) {
       $.ui.toast('Structured prompt is in the box: review, edit, then press Enter.')
+      // An MCP-style tool answers with plain text: an object here is refused as the wrong shape.
       return {
-        result: {
-          text: 'The prompt is in the user\'s prompt box, not sent. Reply in one short line that it is ready to review and send; do not start the work.',
-        },
+        result:
+          'The prompt is in the user\'s prompt box, not sent. Reply in one short line that it is ready to review and send; do not start the work.',
       }
     }
 
     return {
-      result: {
-        text: 'The prompt box could not be filled on this surface. Show the final prompt to the user in one fenced code block so they can copy it, and do not start the work.',
-      },
+      result:
+        'The prompt box could not be filled on this surface. Show the final prompt to the user in one fenced code block so they can copy it, and do not start the work.',
     }
   })
 }

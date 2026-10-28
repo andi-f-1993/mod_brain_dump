@@ -43,6 +43,7 @@ test('the ready tool fills the box without sending; the reviewed prompt then pas
   const prompt = '## Job\nDo X.\n## Why\nY.\n## Boundaries\nZ.\n## Definition of done\nTests pass.'
   const ran = await $.tool.call({ tool: 'mcp__brain-dump-structurer__ready', prompt } as any)
   expect(ran.deny).toBeUndefined()
+  expect(typeof ran.result).toBe('string')
   expect(filled).toEqual([prompt])
 
   const reviewed = await submit($, prompt)
@@ -57,4 +58,18 @@ test('/brain-dump off turns detection off', async ($, on) => {
   expect(out.text).toContain('off')
   const long = await submit($, LONG)
   expect(long.context ?? []).toEqual([])
+})
+
+test('a structuring that never reached the ready tool stops tagging prompts after two turns', async ($, on) => {
+  mock.store(on)
+  on('prompt.submit', (_, e) => ({ text: e.text, context: e.context }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+
+  await submit($, LONG)
+  await $.turn.complete({ answer: 'ok', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' } as any)
+  const answer = await submit($, 'option A please')
+  expect((answer.context ?? []).join('')).toContain('continues the brain-dump')
+  await $.turn.complete({ answer: 'ok', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' } as any)
+  const later = await submit($, 'an unrelated short question')
+  expect(later.context ?? []).toEqual([])
 })
