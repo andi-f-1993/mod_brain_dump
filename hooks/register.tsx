@@ -1,4 +1,7 @@
-import type { Register } from 'claude-code'
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
+
+import type { Draft } from '../types'
 
 // Long, unstructured prompts (voice brain dumps) are not acted on directly:
 // Claude first turns them into a structured prompt, asks what is missing, and
@@ -11,6 +14,9 @@ const ENABLED_KEY = 'enabled'
 // "raw: ..." sends the prompt as is; "structure: ..." structures it whatever its length.
 const RAW = /^\s*raw:\s*/i
 const FORCE = /^\s*structure:\s*/i
+const ORANGE = '#E8871E'
+const NO_DRAFT: Draft = { words: 0, isIgnored: false }
+const draft = atom({ plugin: 'brain-dump-structurer', key: 'draft' } as const, NO_DRAFT, { shape: 'draft-1' })
 const HEADINGS = ['## Job', '## Why', '## Boundaries', '## Definition of done']
 
 const INSTRUCTIONS = `<brain-dump-structurer>
@@ -19,6 +25,7 @@ The user's message above is a long, unstructured brain dump (often voice input).
 Follow Anthropic's prompting guidance: be clear and direct, give the context and the reason behind each requirement, state constraints explicitly, and define what success looks like.
 
 Steps:
+0. Before anything else, tell the user in one short line that the brain dump was recognised and is being structured, so they know at once (for example: "Brain dump recognised, structuring it.").
 1. Read the whole dump. Extract every concrete requirement, fact, file, name, number and preference. Drop filler, repetition and false starts; keep the user's own terms and technical vocabulary. Where the user corrected themselves, keep the corrected version.
 2. If the project context (CLAUDE.md, the repository) answers a question, use it instead of asking. Read files only if needed to resolve ambiguity; make no changes.
 3. Find the gaps that would materially change the result: an unclear goal, conflicting statements, a missing scope limit, no way to tell when it is done. Ask about those only, with the AskUserQuestion tool (up to 4 questions, concrete options, your recommended option first). Do not ask about things with a sensible default; state the default in the prompt as an assumption instead. If nothing material is missing, ask nothing.
@@ -43,6 +50,15 @@ This message continues the brain-dump structuring in progress (an answer to your
 </brain-dump-structurer>`
 
 const words = (text: string) => text.trim().split(/\s+/).filter(Boolean).length
+
+// What the draft in the box would do on Enter: a dump past the limit, unless "raw:" or Ignore says otherwise.
+async function track($: EngineInterface, text: string, minWords: number): Promise<void> {
+  const body = text.replace(FORCE, '')
+  const count = RAW.test(text) ? 0 : FORCE.test(text) ? Math.max(words(body), minWords) : words(body)
+  const isOn = (await $.store.get(ENABLED_KEY)) !== false
+  const next = isOn && count >= minWords ? count : 0
+  await update($, draft, d => (next === 0 ? NO_DRAFT : { words: next, isIgnored: d.isIgnored }))
+}
 const isStructured = (text: string) => HEADINGS.every(h => text.includes(h))
 const normalize = (text: string) => text.replace(/\s+/g, ' ').trim()
 
@@ -77,6 +93,43 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // Typed and dictated text reach the box as edits; pastes, recalls and fills as changes.
+  on('prompt.edit', async ($, e, next) => {
+    const box = await next(e)
+    await track($, box.text, minWords)
+
+    return box
+  })
+
+  on('prompt.change', async ($, e, next) => {
+    await track($, e.text, minWords)
+
+    return next(e)
+  })
+
+  // An orange line above the box while the draft would be structured, with a way out.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const d = await read($, draft)
+    if (d.words === 0 || e.props.hasSurvey) return next(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
+
+    if (d.isIgnored) {
+      return (
+        <Box>
+          <Text dimColor>{`Brain dump ignored · ${d.words} words · sent as is  `}</Text>
+          <Button key="undo-ignore" label="Structure it" onPress={() => update($, draft, x => ({ ...x, isIgnored: false }))} />
+        </Box>
+      )
+    }
+
+    return (
+      <Box>
+        <Text color={ORANGE}>{`Brain dump detected · ${d.words} words · will be structured when you press Enter  `}</Text>
+        <Button key="ignore" label="Ignore" onPress={() => update($, draft, x => ({ ...x, isIgnored: true }))} />
+      </Box>
+    )
+  })
+
   on('command.run', { command: 'brain-dump' }, async ($, e) => {
     const arg = e.args.trim().toLowerCase()
     if (arg === 'on' || arg === 'off') {
@@ -97,7 +150,13 @@ export const register: Register = (on, options) => {
       return next(e)
     }
     if (RAW.test(e.text)) {
+      await update($, draft, () => NO_DRAFT).catch(() => undefined)
       return next({ ...e, text: e.text.replace(RAW, '') })
+    }
+    const wasIgnored = await read($, draft).then(d => d.isIgnored, () => false)
+    await update($, draft, () => NO_DRAFT).catch(() => undefined)
+    if (wasIgnored) {
+      return next(e)
     }
 
     const isForced = FORCE.test(e.text)
@@ -144,7 +203,9 @@ export const register: Register = (on, options) => {
       return { deny: 'The prompt is empty.' }
     }
 
-    const filled = await $.prompt.fill({ text: prompt, mode: 'replace', cursor: 0 })
+    const filled = await $.prompt
+      .fill({ text: prompt, mode: 'replace', cursor: 0 })
+      .catch(() => ({ isFilled: false }))
     lastFilled = prompt
     isPending = false
     $.ui.status(undefined)

@@ -3,7 +3,8 @@
 Turns long brain-dump prompts (e.g. voice input) into a structured prompt before Claude acts on them.
 
 1. A prompt of at least `minWords` words (default 120) is not run. Claude instead pulls out the requirements, asks clarifying questions where something material is missing, and writes a prompt with **Job / Why / Context / Boundaries / Definition of done**.
-2. The finished prompt is put in your prompt box, not sent. Review or edit it, then press Enter; it runs as normal.
+2. In Claude Code, an orange line above the prompt box says "Brain dump detected" as soon as the draft passes the limit, before you press Enter. Its **Ignore** button sends that draft as is. In the Projects app, where drafts are not visible to Claude, Claude's reply opens with a line confirming the brain dump was recognised.
+3. The finished prompt is put in your prompt box, not sent. Review or edit it, then press Enter; it runs as normal.
 
 Controls: `raw: ...` sends a prompt as is; `structure: ...` structures a short one; `/brain-dump on|off` toggles it (remembered across sessions). The threshold is the `minWords` option in `/config`.
 

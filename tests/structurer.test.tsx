@@ -73,3 +73,41 @@ test('a structuring that never reached the ready tool stops tagging prompts afte
   const later = await submit($, 'an unrelated short question')
   expect(later.context ?? []).toEqual([])
 })
+
+const BAND = {
+  plugin: 'brain-dump-structurer',
+  component: 'AbovePrompt',
+  props: { hasSurvey: false, isWorking: false, maxRows: 4, bodyColumns: 80, scroll: { offset: 0, bodyRows: 4 } },
+} as const
+
+const type = ($: any, text: string) =>
+  $.prompt.edit({ origin: { kind: 'composer' }, text: '', cursor: 0, start: 0, end: 0, inputText: text } as any)
+
+test('a long draft shows the orange line before Enter; Ignore sends it as is', async ($, on) => {
+  mock.store(on)
+  on('prompt.edit', (_, e) => ({ text: e.inputText, cursor: e.inputText.length }) as any)
+  // Stands for the engine's own (empty) band.
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>engine</Text>
+  })
+  on('prompt.submit', (_, e) => ({ text: e.text, context: e.context }))
+
+  await type($, 'a short note')
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const quiet = await $.ui.mount({ ...BAND, surface } as any)
+    expect(await quiet.find({ type: 'Text', text: /Brain dump detected/ })).toBeUndefined()
+    await quiet.unmount()
+  }
+
+  await type($, LONG)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  expect((await ui.find({ type: 'Text', text: /Brain dump detected/ }))?.text).toContain('150 words')
+  await ui.press({ key: 'ignore' } as any)
+  expect(await ui.find({ type: 'Text', text: /Brain dump ignored/ })).toBeDefined()
+  await ui.unmount()
+
+  const sent = await submit($, LONG)
+  expect(sent.context ?? []).toEqual([])
+})
